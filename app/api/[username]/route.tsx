@@ -9,7 +9,7 @@
 
 import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
-import { getUserConfigByUsername, getPlugin } from '@/lib/firebase-server';
+import { getUserConfigByUsername, getPlugin, getUserPlan } from '@/lib/firebase-server';
 import { Plugin, UserConfig } from '@/lib/types';
 import LifeView from '../wallpaper/life-view-enhanced';
 import YearView from '../wallpaper/year-view-enhanced';
@@ -244,6 +244,20 @@ export async function GET(
     console.log('Total plugin render elements:', pluginRenderElements.length);
     console.log('Sample plugin elements:', JSON.stringify(pluginRenderElements.slice(0, 3), null, 2));
 
+    // Enforce plan before rendering background image
+    let backgroundImageProp: { url: string; opacity: number } | undefined;
+    if (config.backgroundImage?.url) {
+      const userPlan = await getUserPlan(config.userId);
+      const isPro = userPlan === 'pro';
+      const isFreePreset = config.backgroundImage.type === 'preset' && config.backgroundImage.isFree === true;
+      if (isPro || isFreePreset) {
+        backgroundImageProp = {
+          url: config.backgroundImage.url,
+          opacity: config.backgroundImage.opacity ?? 0.1,
+        };
+      }
+    }
+
     // Prepare view props
     const viewProps = {
       width: config.device.width,
@@ -254,6 +268,7 @@ export async function GET(
       textElements: config.textElements,
       pluginElements: pluginRenderElements,
       currentDate: currentDate,
+      backgroundImage: backgroundImageProp,
     };
 
     let view;

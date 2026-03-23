@@ -213,6 +213,9 @@ export interface UserConfig {
   /** User's timezone (IANA format) */
   timezone?: string;
   
+  /** Background image configuration */
+  backgroundImage?: BackgroundImage;
+
   /** Last updated timestamp */
   updatedAt: Date | null;
 }
@@ -392,6 +395,48 @@ export interface PluginCalculationResult {
   
   /** Additional data to pass to rendering */
   data?: Record<string, any>;
+}
+
+/**
+ * User subscription plan
+ */
+export type UserPlan = 'free' | 'pro';
+
+/**
+ * User role
+ */
+export type UserRole = 'user' | 'admin';
+
+/**
+ * Background image configuration for wallpaper
+ */
+export interface BackgroundImage {
+  /** Public URL to the image */
+  url: string;
+  /** Whether this is a preset or user-uploaded image */
+  type: 'preset' | 'upload';
+  /** Preset ID (if type === 'preset') */
+  presetId?: string;
+  /** Whether this preset is free (set when selecting, used for server-side enforcement) */
+  isFree?: boolean;
+  /** Opacity 0-1 */
+  opacity: number;
+  /** Firebase Storage path (for user uploads, used for deletion) */
+  storagePath?: string;
+}
+
+/**
+ * Preset background available in the picker
+ */
+export interface PresetBackground {
+  id: string;
+  name: string;
+  url: string;
+  thumbnailUrl?: string;
+  isFree: boolean;
+  category?: string;
+  storagePath?: string;
+  createdAt?: Date;
 }
 
 /**

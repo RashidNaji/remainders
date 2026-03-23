@@ -32,6 +32,7 @@ interface LifeViewProps {
   textElements?: TextElement[];
   pluginElements?: any[];
   currentDate?: Date;
+  backgroundImage?: { url: string; opacity: number };
 }
 
 export default function LifeView({
@@ -59,6 +60,7 @@ export default function LifeView({
   textElements = [],
   pluginElements = [],
   currentDate = new Date(),
+  backgroundImage,
 }: LifeViewProps) {
   // Life Logic
   const LIFE_EXPECTANCY_YEARS = 80;
@@ -153,6 +155,23 @@ export default function LifeView({
         position: 'relative',
       }}
     >
+      {/* Background image layer */}
+      {backgroundImage?.url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={backgroundImage.url}
+          alt=""
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            opacity: backgroundImage.opacity ?? 0.1,
+          }}
+        />
+      )}
       {/* Main Grid SVG */}
       <svg
         width={gridWidth}

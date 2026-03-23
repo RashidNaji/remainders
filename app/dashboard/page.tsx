@@ -9,18 +9,19 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import { saveUserProfile, saveUserConfig, isUsernameAvailable, getUserConfigByUsername } from '@/lib/firebase';
-import { UserConfig, DeviceModel, ViewMode, Plugin, PluginConfig, TextElement, DaysLayoutMode } from '@/lib/types';
+import { UserConfig, DeviceModel, ViewMode, Plugin, PluginConfig, TextElement, DaysLayoutMode, BackgroundImage } from '@/lib/types';
 import ViewModeToggle from '@/components/ViewModeToggle';
 import BirthDateInput from '@/components/BirthDateInput';
 import DeviceSelector from '@/components/DeviceSelector';
 import ThemeColorPicker from '@/components/ThemeColorPicker';
 import PluginMarketplace from '@/components/PluginMarketplace';
 import TextElementsEditor from '@/components/TextElementsEditor';
+import BackgroundPicker from '@/components/BackgroundPicker';
 import { PRESET_THEMES, getThemeByName, Theme } from '@/lib/themes';
 import { seedExamplePlugins } from '@/lib/seed-plugins';
 
 export default function DashboardPage() {
-  const { user, userProfile, loading, refreshProfile } = useAuth();
+  const { user, userProfile, loading, refreshProfile, isPro } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   
@@ -66,6 +67,10 @@ export default function DashboardPage() {
     dotSpacing: layout.dotSpacing ?? 0.7,
   };
   
+  // Background image state
+  const [backgroundImage, setBackgroundImage] = useState<BackgroundImage | null>(null);
+  const [backgroundExpanded, setBackgroundExpanded] = useState(false);
+
   // Plugin state
   const [plugins, setPlugins] = useState<PluginConfig[]>([]);
   
@@ -129,6 +134,7 @@ export default function DashboardPage() {
       layout: JSON.stringify(layout),
       plugins: JSON.stringify(plugins),
       textElements: JSON.stringify(textElements),
+      backgroundImage: JSON.stringify(backgroundImage),
       viewMode,
       birthDate,
       isMondayFirst,
@@ -137,13 +143,14 @@ export default function DashboardPage() {
       timezone,
       device: JSON.stringify(currentDevice),
     };
-    
+
     const savedState = {
       colors: JSON.stringify(config.colors),
       typography: JSON.stringify(config.typography),
       layout: JSON.stringify(config.layout),
       plugins: JSON.stringify(config.plugins || []),
       textElements: JSON.stringify(config.textElements || []),
+      backgroundImage: JSON.stringify(config.backgroundImage ?? null),
       viewMode: config.viewMode,
       birthDate: config.birthDate,
       isMondayFirst: config.isMondayFirst,
@@ -178,7 +185,7 @@ export default function DashboardPage() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [colors, fontFamily, fontSize, statsVisible, layout, plugins, textElements, viewMode, birthDate, isMondayFirst, yearViewLayout, daysLayoutMode, timezone, selectedDevice, config, isConfigComplete]);
+  }, [colors, fontFamily, fontSize, statsVisible, layout, plugins, textElements, backgroundImage, viewMode, birthDate, isMondayFirst, yearViewLayout, daysLayoutMode, timezone, selectedDevice, config, isConfigComplete]);
 
   const loadUserConfig = async (username: string) => {
     const { data } = await getUserConfigByUsername(username);
@@ -223,9 +230,13 @@ export default function DashboardPage() {
       if (cfg.plugins) {
         setPlugins(cfg.plugins);
       }
-      
+
       if (cfg.textElements) {
         setTextElements(cfg.textElements);
+      }
+
+      if (cfg.backgroundImage) {
+        setBackgroundImage(cfg.backgroundImage);
       }
       
       if (cfg.device && cfg.device.width) {
@@ -539,6 +550,7 @@ export default function DashboardPage() {
       layout: layout,
       textElements: textElements,
       plugins: plugins,
+      backgroundImage: backgroundImage ?? undefined,
       isMondayFirst,
       yearViewLayout,
       daysLayoutMode,
@@ -1181,6 +1193,50 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* Background Image */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setBackgroundExpanded(!backgroundExpanded)}
+            className="w-full p-6 flex items-center justify-between hover:bg-neutral-800 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm uppercase tracking-wider text-neutral-400">Background Image</h2>
+              {!isPro && (
+                <span className="text-xs bg-neutral-700 text-neutral-400 px-2 py-0.5 rounded">
+                  Free presets available
+                </span>
+              )}
+              {isPro && (
+                <span className="text-xs bg-[#FF6B35]/20 text-[#FF6B35] px-2 py-0.5 rounded">
+                  Pro
+                </span>
+              )}
+            </div>
+            <svg
+              className={`w-5 h-5 text-neutral-400 transition-transform ${backgroundExpanded ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {backgroundExpanded && (
+            <div className="p-6 border-t border-neutral-800">
+              <p className="text-xs text-neutral-500 mb-4">
+                Add a background image behind your wallpaper grid.
+                {!isPro && ' Upgrade to Pro to upload custom images.'}
+              </p>
+              {user && (
+                <BackgroundPicker
+                  value={backgroundImage}
+                  onChange={setBackgroundImage}
+                  userId={user.uid}
+                  isPro={isPro}
+                />
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Text Elements Editor */}
         <div className="p-6 bg-neutral-900 border border-neutral-800 rounded-lg space-y-4">

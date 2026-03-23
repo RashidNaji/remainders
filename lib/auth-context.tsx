@@ -9,12 +9,14 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from 'firebase/auth';
-import { onAuthChange, signInWithGoogle, signOut, getUserProfile } from '@/lib/firebase';
+import { onAuthChange, signInWithGoogle, signOut, getUserProfile, updateLastActive } from '@/lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   userProfile: any | null;
+  isAdmin: boolean;
+  isPro: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -24,6 +26,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   userProfile: null,
+  isAdmin: false,
+  isPro: false,
   signIn: async () => {},
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -52,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(user);
       if (user) {
         await fetchUserProfile(user.uid);
+        updateLastActive(user.uid);
       } else {
         setUserProfile(null);
       }
@@ -83,10 +88,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const isAdmin = userProfile?.role === 'admin';
+  const isPro = userProfile?.plan === 'pro' || isAdmin;
+
   const value = {
     user,
     loading,
     userProfile,
+    isAdmin,
+    isPro,
     signIn: handleSignIn,
     signOut: handleSignOut,
     refreshProfile,

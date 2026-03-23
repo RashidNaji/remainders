@@ -40,6 +40,11 @@
 - Support Desktop/Tablets/Big Displays
 - Advanced typography options
 
+## Thanks To
+
+- **Alex Redwood** - An incredible supporter
+- **HashemSalhi** and **Yazan03**  - For finding security issues in the repo
+
 ---
 
 **Support this project:** [Buy Me a Coffee](https://ko-fi.com/ti003) ☕  
