@@ -86,7 +86,8 @@ export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
     if (!response.ok) return 'free';
     const doc = await response.json();
     const data = convertFirestoreDocument(doc);
-    return data?.plan === 'pro' ? 'pro' : 'free';
+    // Admins are treated as Pro
+    return data?.plan === 'pro' || data?.role === 'admin' ? 'pro' : 'free';
   } catch {
     return 'free';
   }

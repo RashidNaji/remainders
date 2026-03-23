@@ -213,6 +213,9 @@ export interface UserConfig {
   /** User's timezone (IANA format) */
   timezone?: string;
   
+  /** User's subscription plan (denormalized for server-side rendering) */
+  plan?: UserPlan;
+
   /** Background image configuration */
   backgroundImage?: BackgroundImage;
 

@@ -551,6 +551,7 @@ export default function DashboardPage() {
       textElements: textElements,
       plugins: plugins,
       backgroundImage: backgroundImage ?? undefined,
+      plan: (userProfile?.plan || userProfile?.role === 'admin' ? 'pro' : 'free') as 'free' | 'pro',
       isMondayFirst,
       yearViewLayout,
       daysLayoutMode,

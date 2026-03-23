@@ -32,6 +32,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
   const [updating, setUpdating] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string>('');
 
   const loadUsers = async () => {
     const { data } = await adminGetAllUsers();
@@ -55,9 +56,11 @@ export default function AdminUsersPage() {
   const handleTogglePlan = async (userId: string, username: string, currentPlan: string) => {
     const newPlan = currentPlan === 'pro' ? 'free' : 'pro';
     setUpdating(userId);
-    const { error } = await adminUpdateUserPlan(userId, newPlan as 'free' | 'pro');
-    if (!error) {
-      // When revoking Pro, clear their background image from config
+    setUpdateError('');
+    const { error } = await adminUpdateUserPlan(userId, newPlan as 'free' | 'pro', username);
+    if (error) {
+      setUpdateError(`Failed to update plan: ${error}`);
+    } else {
       if (newPlan === 'free' && username) {
         await adminClearUserBackground(username);
       }
@@ -100,6 +103,14 @@ export default function AdminUsersPage() {
           ))}
         </div>
       </div>
+
+      {/* Error banner */}
+      {updateError && (
+        <div className="flex items-center justify-between bg-red-950/50 border border-red-900 rounded-lg px-4 py-3">
+          <span className="text-xs font-mono text-red-400">{updateError}</span>
+          <button onClick={() => setUpdateError('')} className="text-red-600 hover:text-red-400 text-xs font-mono ml-4">✕</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">

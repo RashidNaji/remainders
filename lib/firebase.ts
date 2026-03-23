@@ -26,6 +26,7 @@ import {
   updateDoc,
   deleteDoc,
   deleteField,
+  onSnapshot,
   collection,
   query,
   where,
@@ -336,6 +337,17 @@ export async function getPlugin(pluginId: string) {
 }
 
 /**
+ * Subscribe to real-time user profile updates.
+ * Returns an unsubscribe function. Callback receives null when the doc doesn't exist.
+ */
+export function subscribeToUserProfile(userId: string, callback: (data: any | null) => void): () => void {
+  if (!db) return () => {};
+  return onSnapshot(doc(db, 'users', userId), (snap) => {
+    callback(snap.exists() ? snap.data() : null);
+  });
+}
+
+/**
  * Update user's last active timestamp (silent fail)
  */
 export async function updateLastActive(userId: string): Promise<void> {
@@ -420,15 +432,25 @@ export async function adminGetAllUsers(): Promise<{ data: any[]; error: string |
 }
 
 /**
- * Admin: Update user plan (grant / revoke Pro)
+ * Admin: Update user plan (grant / revoke Pro).
+ * Also syncs plan into the configs doc so the wallpaper API can read it without auth.
  */
 export async function adminUpdateUserPlan(
   userId: string,
-  plan: UserPlan
+  plan: UserPlan,
+  username?: string
 ): Promise<{ error: string | null }> {
   if (!db) return { error: 'Firestore not initialized' };
   try {
     await updateDoc(doc(db, 'users', userId), { plan, planUpdatedAt: Timestamp.now() });
+    // Sync plan into /configs/{username} so the edge wallpaper API can read it
+    if (username) {
+      try {
+        await updateDoc(doc(db, 'configs', username.toLowerCase()), { plan });
+      } catch {
+        // Config may not exist yet — ignore
+      }
+    }
     return { error: null };
   } catch (error: any) {
     return { error: error.message };
