@@ -248,7 +248,9 @@ export async function GET(
     // Plan is stored in the config doc (public-readable) — no extra auth needed
     let backgroundImageProp: { url: string; opacity: number } | undefined;
     if (config.backgroundImage?.url) {
-      const isPro = config.plan === 'pro';
+      const planExpiresAt = config.planExpiresAt as Date | null | undefined;
+      const planExpired = planExpiresAt ? planExpiresAt.getTime() < Date.now() : false;
+      const isPro = config.plan === 'pro' && !planExpired;
       const isFreePreset = config.backgroundImage.type === 'preset' && config.backgroundImage.isFree === true;
       if (isPro || isFreePreset) {
         backgroundImageProp = {

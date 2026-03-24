@@ -348,15 +348,23 @@ export async function applyPendingKofiGrant(userId: string, email: string, usern
     const grant = grantDoc.data();
     if (grant?.applied) return false;
 
-    // Apply the grant
+    // Use expiry stored in the grant doc (set at donation time), or fall back to 30 days from now
+    const expiresAtTs: Timestamp = grant?.planExpiresAt instanceof Timestamp
+      ? grant.planExpiresAt
+      : Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+
     await updateDoc(doc(db, 'users', userId), {
       plan: 'pro',
       planGrantedBy: 'kofi',
       planGrantedAt: Timestamp.now(),
+      planExpiresAt: expiresAtTs,
     });
     if (username) {
       try {
-        await updateDoc(doc(db, 'configs', username.toLowerCase()), { plan: 'pro' });
+        await updateDoc(doc(db, 'configs', username.toLowerCase()), {
+          plan: 'pro',
+          planExpiresAt: expiresAtTs,
+        });
       } catch { /* config may not exist yet */ }
     }
     await updateDoc(doc(db, 'kofi_grants', email.toLowerCase()), { applied: true });
@@ -464,20 +472,34 @@ export async function adminGetAllUsers(): Promise<{ data: any[]; error: string |
 
 /**
  * Admin: Update user plan (grant / revoke Pro).
- * Also syncs plan into the configs doc so the wallpaper API can read it without auth.
+ * Also syncs plan and expiry into the configs doc so the wallpaper API can read it without auth.
+ * @param expiresAt - Date when Pro expires. Pass null to never expire, undefined to clear (revoke).
  */
 export async function adminUpdateUserPlan(
   userId: string,
   plan: UserPlan,
-  username?: string
+  username?: string,
+  expiresAt?: Date | null
 ): Promise<{ error: string | null }> {
   if (!db) return { error: 'Firestore not initialized' };
   try {
-    await updateDoc(doc(db, 'users', userId), { plan, planUpdatedAt: Timestamp.now() });
-    // Sync plan into /configs/{username} so the edge wallpaper API can read it
+    const userUpdate: any = { plan, planUpdatedAt: Timestamp.now() };
+    const configUpdate: any = { plan };
+
+    if (plan === 'pro') {
+      userUpdate.planExpiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+      configUpdate.planExpiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+    } else {
+      // Revoking — clear expiry
+      userUpdate.planExpiresAt = deleteField();
+      configUpdate.planExpiresAt = deleteField();
+    }
+
+    await updateDoc(doc(db, 'users', userId), userUpdate);
+    // Sync into /configs/{username} so the edge wallpaper API can read it
     if (username) {
       try {
-        await updateDoc(doc(db, 'configs', username.toLowerCase()), { plan });
+        await updateDoc(doc(db, 'configs', username.toLowerCase()), configUpdate);
       } catch {
         // Config may not exist yet — ignore
       }

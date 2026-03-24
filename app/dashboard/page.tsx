@@ -20,6 +20,13 @@ import BackgroundPicker from '@/components/BackgroundPicker';
 import { PRESET_THEMES, getThemeByName, Theme } from '@/lib/themes';
 import { seedExamplePlugins } from '@/lib/seed-plugins';
 
+/** Returns remaining days until expiry, or null if no expiry. Negative = expired. */
+function getDaysRemaining(planExpiresAt: any): number | null {
+  if (!planExpiresAt) return null;
+  const expiryDate = planExpiresAt.toDate?.() ?? new Date(planExpiresAt);
+  return Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
+
 export default function DashboardPage() {
   const { user, userProfile, loading, refreshProfile, isPro } = useAuth();
   const router = useRouter();
@@ -737,6 +744,104 @@ export default function DashboardPage() {
             </a>
           </div>
         </div>
+
+        {/* Subscription Status */}
+        {(() => {
+          const isAdmin = userProfile?.role === 'admin';
+          const daysLeft = getDaysRemaining(userProfile?.planExpiresAt);
+
+          if (isAdmin) {
+            return (
+              <div className="px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Admin</span>
+                  <span className="text-xs font-mono text-neutral-500">Full access · No expiration</span>
+                </div>
+              </div>
+            );
+          }
+
+          if (isPro && daysLeft !== null) {
+            const urgency = daysLeft <= 3 ? 'text-red-400' : daysLeft <= 7 ? 'text-yellow-400' : 'text-green-400';
+            const barColor = daysLeft <= 3 ? '#ef4444' : daysLeft <= 7 ? '#eab308' : '#22c55e';
+            const barWidth = Math.max(2, Math.min(100, (daysLeft / 30) * 100));
+            return (
+              <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Pro</span>
+                    <span className={`text-xs font-mono ${urgency}`}>
+                      {daysLeft <= 0 ? 'Expired' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono text-neutral-600">
+                    {(() => {
+                      const d = userProfile?.planExpiresAt?.toDate?.() ?? new Date(userProfile?.planExpiresAt);
+                      return d instanceof Date && !isNaN(d.getTime())
+                        ? `Expires ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : '';
+                    })()}
+                  </span>
+                </div>
+                <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
+                  <div style={{ width: `${barWidth}%`, height: '100%', background: barColor, borderRadius: '9999px', transition: 'width 0.3s' }} />
+                </div>
+                {daysLeft <= 7 && (
+                  <div className="text-xs font-mono text-neutral-500">
+                    {daysLeft <= 0
+                      ? 'Your Pro plan has expired. Donate again on Ko-fi to renew.'
+                      : 'Pro expiring soon — '}{daysLeft > 0 && (
+                        <a href="https://ko-fi.com/ti003" target="_blank" rel="noopener noreferrer" className="text-[#FF6B35] hover:underline">
+                          donate on Ko-fi to renew
+                        </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (isPro && daysLeft === null) {
+            return (
+              <div className="px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg flex items-center gap-3">
+                <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Pro</span>
+                <span className="text-xs font-mono text-neutral-500">Active · No expiration</span>
+              </div>
+            );
+          }
+
+          // Free user — show how to get Pro
+          return (
+            <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono uppercase tracking-widest text-neutral-500">Free Plan</span>
+                <a
+                  href="https://ko-fi.com/ti003"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-mono text-[#FF6B35] hover:underline uppercase tracking-widest"
+                >
+                  Upgrade to Pro →
+                </a>
+              </div>
+              <div className="text-xs font-mono text-neutral-600 leading-relaxed">
+                Donate on Ko-fi to unlock Pro backgrounds, custom uploads, and support the project.
+              </div>
+              <div className="flex flex-col gap-1.5 text-xs font-mono">
+                {[
+                  ['1', 'Visit ko-fi.com/ti003 and donate any amount'],
+                  ['2', 'Pro activates automatically (email must match your account)'],
+                  ['3', 'Used a different email? Use the "Donated on Ko-fi?" field below'],
+                ].map(([step, text]) => (
+                  <div key={step} className="flex gap-2">
+                    <span className="text-[#FF6B35] font-bold">{step}.</span>
+                    <span className="text-neutral-500">{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Wallpaper Configuration */}
         <div className="p-6 bg-neutral-900 border border-neutral-800 rounded-lg space-y-6">

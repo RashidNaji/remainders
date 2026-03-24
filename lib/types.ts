@@ -216,6 +216,9 @@ export interface UserConfig {
   /** User's subscription plan (denormalized for server-side rendering) */
   plan?: UserPlan;
 
+  /** When the Pro plan expires (null = never expires) */
+  planExpiresAt?: Date | null;
+
   /** Background image configuration */
   backgroundImage?: BackgroundImage;
 

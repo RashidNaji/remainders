@@ -72,6 +72,10 @@ export async function POST(request: NextRequest) {
     const usersSnapshot = await db.collection('users').where('email', '==', donorEmail).get();
 
     if (usersSnapshot.empty) {
+      // Pro expires 30 days from now (clock starts from donation, not signup)
+      const pendingExpiresAt = new Date();
+      pendingExpiresAt.setDate(pendingExpiresAt.getDate() + 30);
+
       // User hasn't signed up yet — store the grant so it can be applied on first login
       await db.collection('kofi_grants').doc(donorEmail).set({
         email: donorEmail,
@@ -81,11 +85,17 @@ export async function POST(request: NextRequest) {
         type: payload.type,
         kofi_transaction_id: payload.kofi_transaction_id,
         grantedAt: admin.firestore.FieldValue.serverTimestamp(),
+        planExpiresAt: admin.firestore.Timestamp.fromDate(pendingExpiresAt),
         applied: false,
       });
       console.log(`Ko-fi webhook: no user found for ${donorEmail} — stored pending grant`);
       return NextResponse.json({ ok: true, status: 'pending_signup' });
     }
+
+    // Pro expires 30 days from now
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    const expiresAtTs = admin.firestore.Timestamp.fromDate(expiresAt);
 
     // Grant Pro to all matching users (should be exactly one)
     const batch = db.batch();
@@ -98,12 +108,13 @@ export async function POST(request: NextRequest) {
         plan: 'pro',
         planGrantedBy: 'kofi',
         planGrantedAt: admin.firestore.FieldValue.serverTimestamp(),
+        planExpiresAt: expiresAtTs,
       });
 
-      // Sync plan into /configs/{username} so the wallpaper API picks it up
+      // Sync plan + expiry into /configs/{username} so the wallpaper API picks it up
       if (username) {
         const configRef = db.collection('configs').doc(username.toLowerCase());
-        batch.update(configRef, { plan: 'pro' });
+        batch.update(configRef, { plan: 'pro', planExpiresAt: expiresAtTs });
       }
     }
     await batch.commit();

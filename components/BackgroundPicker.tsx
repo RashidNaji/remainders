@@ -251,13 +251,33 @@ export default function BackgroundPicker({ value, onChange, userId, isPro }: Bac
           {/* Locked notice — flashes when user clicks a Pro preset */}
           {lockedNotice && (
             <div style={{
-              padding: '10px 14px', background: '#1f1313',
-              border: '1px solid #5a2020', borderRadius: '6px',
-              fontSize: '11px', fontFamily: 'monospace', color: '#ff8080',
-              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '12px 14px', background: '#1a1208',
+              border: '1px solid #FF6B35', borderRadius: '8px',
+              fontSize: '11px', fontFamily: 'monospace',
+              display: 'flex', flexDirection: 'column', gap: '10px',
             }}>
-              <span style={{ fontSize: '14px' }}>🔒</span>
-              This background requires a Pro plan. Contact the admin to upgrade.
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ background: '#FF6B35', color: '#fff', fontSize: '9px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '3px', letterSpacing: '0.1em' }}>PRO</span>
+                <span style={{ color: '#FF6B35', fontWeight: 'bold' }}>Pro plan required</span>
+              </div>
+              <div style={{ color: '#999', lineHeight: '1.6' }}>
+                Get Pro by donating on Ko-fi:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {[
+                  ['1', 'Visit', 'ko-fi.com/ti003'],
+                  ['2', 'Donate any amount'],
+                  ['3', 'Pro activates automatically'],
+                ].map(([step, label, sub]) => (
+                  <div key={step} style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                    <span style={{ color: '#FF6B35', fontWeight: 'bold', minWidth: '14px' }}>{step}.</span>
+                    <span style={{ color: '#ccc' }}>{label}{sub && <> — <a href="https://ko-fi.com/ti003" target="_blank" rel="noopener noreferrer" style={{ color: '#FF6B35', textDecoration: 'none' }}>{sub}</a></>}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ color: '#555', fontSize: '10px', borderTop: '1px solid #2a2a2a', paddingTop: '8px' }}>
+                Used a different email? Use the <strong style={{ color: '#888' }}>Donated on Ko-fi?</strong> field in Config Management.
+              </div>
             </div>
           )}
         </div>
@@ -268,22 +288,45 @@ export default function BackgroundPicker({ value, onChange, userId, isPro }: Bac
         <div>
           {!isPro ? (
             <div style={{
-              padding: '24px 20px', background: '#1a1a1a',
-              border: '1px solid #2a2a2a', borderRadius: '8px', textAlign: 'center',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+              padding: '18px 16px', background: '#1a1208',
+              border: '1px solid #FF6B35', borderRadius: '8px',
+              display: 'flex', flexDirection: 'column', gap: '12px',
+              fontFamily: 'monospace',
             }}>
-              <div style={{
-                background: '#FF6B35', color: '#fff', fontSize: '11px',
-                fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: '0.1em',
-                padding: '4px 10px', borderRadius: '4px',
-              }}>
-                PRO FEATURE
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ background: '#FF6B35', color: '#fff', fontSize: '9px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '3px', letterSpacing: '0.1em' }}>PRO FEATURE</span>
+                <span style={{ fontSize: '12px', color: '#FF6B35', fontWeight: 'bold' }}>Custom upload</span>
               </div>
-              <div style={{ fontSize: '13px', fontFamily: 'monospace', color: '#888' }}>
-                Custom background upload is available on the Pro plan.
+              <div style={{ fontSize: '12px', color: '#888' }}>
+                Upload any image as your wallpaper background. Get Pro by donating on Ko-fi:
               </div>
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#444' }}>
-                Contact the admin to upgrade your account.
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {[
+                  ['1', 'Visit', 'ko-fi.com/ti003'],
+                  ['2', 'Donate any amount'],
+                  ['3', 'Pro activates automatically — your donation keeps this project alive'],
+                ].map(([step, label, sub]) => (
+                  <div key={step} style={{ display: 'flex', alignItems: 'baseline', gap: '8px', fontSize: '11px' }}>
+                    <span style={{ color: '#FF6B35', fontWeight: 'bold', minWidth: '14px' }}>{step}.</span>
+                    <span style={{ color: '#bbb' }}>{label}{sub && <> — <a href="https://ko-fi.com/ti003" target="_blank" rel="noopener noreferrer" style={{ color: '#FF6B35', textDecoration: 'none' }}>{sub}</a></>}</span>
+                  </div>
+                ))}
+              </div>
+              <a
+                href="https://ko-fi.com/ti003"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'block', textAlign: 'center',
+                  padding: '8px 16px', background: '#FF6B35', color: '#fff',
+                  fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.1em',
+                  textTransform: 'uppercase', textDecoration: 'none', borderRadius: '5px',
+                }}
+              >
+                Donate on Ko-fi →
+              </a>
+              <div style={{ color: '#555', fontSize: '10px', borderTop: '1px solid #2a2a2a', paddingTop: '8px' }}>
+                Used a different email? Use the <strong style={{ color: '#888' }}>Donated on Ko-fi?</strong> field in Config Management below.
               </div>
             </div>
           ) : (

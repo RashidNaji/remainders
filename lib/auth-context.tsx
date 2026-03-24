@@ -94,7 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = async () => {};
 
   const isAdmin = userProfile?.role === 'admin';
-  const isPro = userProfile?.plan === 'pro' || isAdmin;
+  const planExpiresAt = userProfile?.planExpiresAt;
+  const planExpired = planExpiresAt
+    ? (planExpiresAt.toDate?.() ?? new Date(planExpiresAt)).getTime() < Date.now()
+    : false;
+  const isPro = (!planExpired && userProfile?.plan === 'pro') || isAdmin;
 
   const value = {
     user,

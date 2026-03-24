@@ -26,6 +26,20 @@ function timeAgo(ts: any): string {
   return `${days}d ago`;
 }
 
+/** Returns true if a Firestore-style timestamp is in the past */
+function isExpired(ts: any): boolean {
+  if (!ts) return false;
+  const ms = ts.seconds ? ts.seconds * 1000 : ts.toDate?.()?.getTime?.();
+  return ms ? ms < Date.now() : false;
+}
+
+/** Default expiry = today + 30 days, formatted as YYYY-MM-DD for <input type="date"> */
+function defaultExpiryValue(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +47,10 @@ export default function AdminUsersPage() {
   const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
   const [updating, setUpdating] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string>('');
+
+  // Grant Pro flow: which user is being granted, and their chosen expiry date
+  const [grantingUserId, setGrantingUserId] = useState<string | null>(null);
+  const [expiryDate, setExpiryDate] = useState<string>(defaultExpiryValue());
 
   const loadUsers = async () => {
     const { data } = await adminGetAllUsers();
@@ -43,7 +61,8 @@ export default function AdminUsersPage() {
   useEffect(() => { loadUsers(); }, []);
 
   const filtered = users.filter(u => {
-    const matchesPlan = planFilter === 'all' || (u.plan || 'free') === planFilter;
+    const effectivePlan = isExpired(u.planExpiresAt) ? 'free' : (u.plan || 'free');
+    const matchesPlan = planFilter === 'all' || effectivePlan === planFilter;
     const q = search.toLowerCase();
     const matchesSearch = !q || (u.username || '').includes(q) || (u.email || '').includes(q);
     return matchesPlan && matchesSearch;
@@ -53,18 +72,44 @@ export default function AdminUsersPage() {
     return bTime - aTime;
   });
 
-  const handleTogglePlan = async (userId: string, username: string, currentPlan: string) => {
-    const newPlan = currentPlan === 'pro' ? 'free' : 'pro';
+  const startGrantPro = (userId: string) => {
+    setGrantingUserId(userId);
+    setExpiryDate(defaultExpiryValue());
+  };
+
+  const cancelGrantPro = () => {
+    setGrantingUserId(null);
+  };
+
+  const confirmGrantPro = async (userId: string, username: string) => {
     setUpdating(userId);
     setUpdateError('');
-    const { error } = await adminUpdateUserPlan(userId, newPlan as 'free' | 'pro', username);
+    setGrantingUserId(null);
+    const expiresAt = expiryDate ? new Date(expiryDate + 'T23:59:59') : null;
+    const { error } = await adminUpdateUserPlan(userId, 'pro', username, expiresAt);
     if (error) {
-      setUpdateError(`Failed to update plan: ${error}`);
+      setUpdateError(`Failed to grant Pro: ${error}`);
     } else {
-      if (newPlan === 'free' && username) {
-        await adminClearUserBackground(username);
-      }
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, plan: newPlan } : u));
+      setUsers(prev => prev.map(u =>
+        u.id === userId
+          ? { ...u, plan: 'pro', planExpiresAt: expiresAt ? { seconds: expiresAt.getTime() / 1000 } : null }
+          : u
+      ));
+    }
+    setUpdating(null);
+  };
+
+  const handleRevokePro = async (userId: string, username: string) => {
+    setUpdating(userId);
+    setUpdateError('');
+    const { error } = await adminUpdateUserPlan(userId, 'free', username);
+    if (error) {
+      setUpdateError(`Failed to revoke Pro: ${error}`);
+    } else {
+      if (username) await adminClearUserBackground(username);
+      setUsers(prev => prev.map(u =>
+        u.id === userId ? { ...u, plan: 'free', planExpiresAt: null } : u
+      ));
     }
     setUpdating(null);
   };
@@ -139,52 +184,98 @@ export default function AdminUsersPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map(u => (
-                  <tr key={u.id} className="hover:bg-neutral-800/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="text-white">{u.username || '(no username)'}</div>
-                      <div className="text-xs text-neutral-500">{u.email}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        (u.plan || 'free') === 'pro'
-                          ? 'bg-[#FF6B35]/20 text-[#FF6B35]'
-                          : 'bg-neutral-800 text-neutral-500'
-                      }`}>
-                        {u.plan || 'free'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">
-                      {formatDate(u.createdAt)}
-                    </td>
-                    <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">
-                      {timeAgo(u.lastActiveAt)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <a
-                          href={`/api/${u.username}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-neutral-500 hover:text-white transition-colors px-2 py-1 border border-neutral-800 rounded hover:border-neutral-600"
-                        >
-                          Preview
-                        </a>
-                        <button
-                          onClick={() => handleTogglePlan(u.id, u.username || '', u.plan || 'free')}
-                          disabled={updating === u.id}
-                          className={`text-xs px-2 py-1 rounded border transition-colors disabled:opacity-50 ${
-                            (u.plan || 'free') === 'pro'
-                              ? 'border-neutral-700 text-neutral-500 hover:text-red-400 hover:border-red-900'
-                              : 'border-[#FF6B35]/30 text-[#FF6B35] hover:bg-[#FF6B35]/10'
-                          }`}
-                        >
-                          {updating === u.id ? '...' : (u.plan || 'free') === 'pro' ? 'Revoke Pro' : 'Grant Pro'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filtered.map(u => {
+                  const expired = isExpired(u.planExpiresAt);
+                  const effectivePlan = expired ? 'free' : (u.plan || 'free');
+                  const isPro = effectivePlan === 'pro';
+
+                  return (
+                    <tr key={u.id} className="hover:bg-neutral-800/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="text-white">{u.username || '(no username)'}</div>
+                        <div className="text-xs text-neutral-500">{u.email}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          isPro
+                            ? 'bg-[#FF6B35]/20 text-[#FF6B35]'
+                            : 'bg-neutral-800 text-neutral-500'
+                        }`}>
+                          {isPro ? 'pro' : 'free'}
+                        </span>
+                        {isPro && u.planExpiresAt && (
+                          <div className="text-xs text-neutral-600 mt-0.5">
+                            expires {formatDate(u.planExpiresAt)}
+                          </div>
+                        )}
+                        {expired && u.plan === 'pro' && (
+                          <div className="text-xs text-red-600 mt-0.5">expired</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">
+                        {formatDate(u.createdAt)}
+                      </td>
+                      <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">
+                        {timeAgo(u.lastActiveAt)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {grantingUserId === u.id ? (
+                          /* Inline date picker for Pro expiry */
+                          <div className="flex items-center justify-end gap-2 flex-wrap">
+                            <input
+                              type="date"
+                              value={expiryDate}
+                              min={new Date().toISOString().slice(0, 10)}
+                              onChange={e => setExpiryDate(e.target.value)}
+                              className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-[#FF6B35]"
+                            />
+                            <button
+                              onClick={() => confirmGrantPro(u.id, u.username || '')}
+                              disabled={!expiryDate}
+                              className="text-xs px-2 py-1 rounded border border-[#FF6B35]/50 text-[#FF6B35] hover:bg-[#FF6B35]/10 disabled:opacity-40"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={cancelGrantPro}
+                              className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-500 hover:text-white"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <a
+                              href={`/api/${u.username}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-neutral-500 hover:text-white transition-colors px-2 py-1 border border-neutral-800 rounded hover:border-neutral-600"
+                            >
+                              Preview
+                            </a>
+                            {isPro ? (
+                              <button
+                                onClick={() => handleRevokePro(u.id, u.username || '')}
+                                disabled={updating === u.id}
+                                className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-500 hover:text-red-400 hover:border-red-900 disabled:opacity-50"
+                              >
+                                {updating === u.id ? '...' : 'Revoke Pro'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => startGrantPro(u.id)}
+                                disabled={updating === u.id}
+                                className="text-xs px-2 py-1 rounded border border-[#FF6B35]/30 text-[#FF6B35] hover:bg-[#FF6B35]/10 disabled:opacity-50"
+                              >
+                                {updating === u.id ? '...' : 'Grant Pro'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
