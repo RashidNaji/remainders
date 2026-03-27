@@ -42,8 +42,8 @@
 
 ## Thanks To
 
-- **Alex Redwood** - An incredible supporter
-- **HashemSalhi** and **Yazan03**  - For finding security issues in the repo
+- **[Alex Redwood](https://github.com/aredwood)** - An incredible supporter
+- **[HashemSalhi](https://github.com/HashemSalhi)** and **[Yazan03](https://github.com/Yazan03)**  - For finding security issues in the repo
 
 ---
 
