@@ -7,6 +7,7 @@ import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
 import { YearView } from './year-view';
 import { LifeView } from './life-view';
+import { logWallpaperEvent } from '@/lib/firebase-server';
 
 export const runtime = 'edge';
 
@@ -37,6 +38,9 @@ export async function GET(request: NextRequest) {
     const secondsUntilMidnight = Math.max(60, Math.floor((midnight.getTime() - now.getTime()) / 1000));
 
     const imageResponse = new ImageResponse(content, { width, height });
+
+    // Fire-and-forget analytics
+    logWallpaperEvent('anonymous', null, viewMode);
 
     return new Response(imageResponse.body, {
       headers: {

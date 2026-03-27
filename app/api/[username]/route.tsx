@@ -9,7 +9,7 @@
 
 import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
-import { getUserConfigByUsername, getPlugin } from '@/lib/firebase-server';
+import { getUserConfigByUsername, getPlugin, logWallpaperEvent } from '@/lib/firebase-server';
 import { Plugin, UserConfig } from '@/lib/types';
 import { isPlanExpired } from '@/lib/plan-utils';
 import { computeWallpaperHash, loadWallpaperCache, storeWallpaperCache } from '@/lib/wallpaper-cache';
@@ -290,6 +290,9 @@ export async function GET(
       width: config.device.width,
       height: config.device.height,
     });
+
+    // Fire-and-forget analytics
+    logWallpaperEvent('user', username, config.viewMode || 'year');
 
     // Store in cache (fire-and-forget — don't block the response)
     imageResponse.clone().arrayBuffer().then(buf => {

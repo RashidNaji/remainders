@@ -133,6 +133,40 @@ export async function getPlugin(pluginId: string) {
 }
 
 /**
+ * Log a wallpaper generation event to the wallpaper_events collection.
+ * Uses REST API so it works from both Edge and Node runtimes.
+ * Fire-and-forget — caller should not await.
+ *
+ * Requires Firestore security rule:
+ *   match /wallpaper_events/{id} { allow create: true; }
+ */
+export async function logWallpaperEvent(
+  type: 'user' | 'anonymous',
+  username: string | null,
+  viewMode: string
+): Promise<void> {
+  if (!isFirebaseConfigured) return;
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/wallpaper_events?key=${FIREBASE_API_KEY}`;
+    const fields: Record<string, unknown> = {
+      type: { stringValue: type },
+      viewMode: { stringValue: viewMode },
+      timestamp: { timestampValue: new Date().toISOString() },
+    };
+    if (username) {
+      fields.username = { stringValue: username };
+    }
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+  } catch {
+    // Non-fatal — analytics failure should never break wallpaper generation
+  }
+}
+
+/**
  * Convert Firestore REST API document format to plain object
  */
 function convertFirestoreDocument(doc: any): any {

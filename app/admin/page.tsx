@@ -4,10 +4,17 @@ import { useEffect, useState } from 'react';
 import { getAuthToken } from '@/lib/get-auth-token';
 import Link from 'next/link';
 
+interface AnalyticsSummary {
+  requests24h: number;
+  anonymous24h: number;
+  activeUsers24h: number;
+}
+
 export default function AdminDashboardPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -17,15 +24,25 @@ export default function AdminDashboardPage() {
         setLoading(false);
         return;
       }
-      const res = await fetch('/api/admin/users', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const { data } = await res.json();
+      const headers = { Authorization: `Bearer ${token}` };
+      const [usersRes, analyticsRes] = await Promise.all([
+        fetch('/api/admin/users', { headers }),
+        fetch('/api/admin/analytics', { headers }),
+      ]);
+      if (usersRes.ok) {
+        const { data } = await usersRes.json();
         setUsers(data);
       } else {
-        const body = await res.json().catch(() => ({}));
-        setFetchError(`API error ${res.status}: ${body.error || res.statusText}`);
+        const body = await usersRes.json().catch(() => ({}));
+        setFetchError(`API error ${usersRes.status}: ${body.error || usersRes.statusText}`);
+      }
+      if (analyticsRes.ok) {
+        const a = await analyticsRes.json();
+        setAnalytics({
+          requests24h: a.requests['24h'],
+          anonymous24h: a.anonymous['24h'],
+          activeUsers24h: a.users['24h'],
+        });
       }
       setLoading(false);
     })();
@@ -46,6 +63,9 @@ export default function AdminDashboardPage() {
     { label: 'Pro Users', value: loading ? '—' : proUsers },
     { label: 'Free Users', value: loading ? '—' : freeUsers },
     { label: 'Active (24h)', value: loading ? '—' : activeToday },
+    { label: 'Wallpaper Requests (24h)', value: loading || !analytics ? '—' : analytics.requests24h },
+    { label: 'Active Users (24h)', value: loading || !analytics ? '—' : analytics.activeUsers24h },
+    { label: 'Anonymous (24h)', value: loading || !analytics ? '—' : analytics.anonymous24h },
   ];
 
   return (
@@ -62,7 +82,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
         {stats.map(stat => (
           <div key={stat.label} className="bg-neutral-900 border border-neutral-800 rounded-lg p-5">
             <div className="text-3xl font-mono text-white mb-1">{stat.value}</div>
@@ -72,7 +92,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Quick links */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <Link href="/admin/users"
           className="block bg-neutral-900 border border-neutral-800 rounded-lg p-6 hover:border-neutral-600 transition-colors group"
         >
@@ -101,6 +121,16 @@ export default function AdminDashboardPage() {
           </h2>
           <p className="text-xs font-mono text-neutral-600">
             View all donations, subscriptions, errors, and pending grants
+          </p>
+        </Link>
+        <Link href="/admin/analytics"
+          className="block bg-neutral-900 border border-neutral-800 rounded-lg p-6 hover:border-neutral-600 transition-colors group"
+        >
+          <h2 className="text-sm font-mono uppercase tracking-wider text-neutral-400 group-hover:text-white transition-colors mb-2">
+            Analytics →
+          </h2>
+          <p className="text-xs font-mono text-neutral-600">
+            Wallpaper requests, active users, anonymous usage, daily trends
           </p>
         </Link>
       </div>
