@@ -30,13 +30,22 @@ export async function GET(request: NextRequest) {
       content = <YearView width={width} height={height} isMondayFirst={isMondayFirst} yearViewLayout={yearViewLayout} daysLayoutMode={daysLayoutMode} />;
     }
 
-    return new ImageResponse(
-      content,
-      {
-        width,
-        height,
-      }
-    );
+    // Compute seconds remaining until midnight UTC so the cache expires
+    // when the "current day" dot would change. Minimum 60s to avoid zero TTL.
+    const now = new Date();
+    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const secondsUntilMidnight = Math.max(60, Math.floor((midnight.getTime() - now.getTime()) / 1000));
+
+    const imageResponse = new ImageResponse(content, { width, height });
+
+    return new Response(imageResponse.body, {
+      headers: {
+        'Content-Type': 'image/png',
+        // Cache until midnight UTC — the image changes when the current-day dot moves.
+        // URL params form the cache key naturally (different configs = different URLs).
+        'Cache-Control': `public, s-maxage=${secondsUntilMidnight}, stale-while-revalidate=60`,
+      },
+    });
   } catch (error) {
     console.error('Error generating wallpaper:', error);
     return new Response('Error generating wallpaper', { status: 500 });

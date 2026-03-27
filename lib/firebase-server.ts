@@ -76,6 +76,24 @@ export async function getUserConfigByUsername(username: string) {
 }
 
 /**
+ * Get user plan by userId using REST API
+ */
+export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
+  if (!isFirebaseConfigured) return 'free';
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${userId}`;
+    const response = await fetch(url);
+    if (!response.ok) return 'free';
+    const doc = await response.json();
+    const data = convertFirestoreDocument(doc);
+    // Admins are treated as Pro
+    return data?.plan === 'pro' || data?.role === 'admin' ? 'pro' : 'free';
+  } catch {
+    return 'free';
+  }
+}
+
+/**
  * Get plugin by ID using REST API
  */
 export async function getPlugin(pluginId: string) {

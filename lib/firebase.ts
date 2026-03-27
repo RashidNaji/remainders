@@ -9,21 +9,24 @@
  */
 
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
+import {
+  getAuth,
+  GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   User,
   Auth
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
   updateDoc,
+  deleteDoc,
+  deleteField,
+  onSnapshot,
   collection,
   query,
   where,
@@ -31,6 +34,15 @@ import {
   Timestamp,
   Firestore
 } from 'firebase/firestore';
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+  FirebaseStorage
+} from 'firebase/storage';
+import type { UserPlan, PresetBackground } from './types';
 
 // Firebase configuration from environment variables with fallbacks
 const firebaseConfig = {
@@ -50,6 +62,7 @@ const isFirebaseConfigured = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID &&
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
+let storage: FirebaseStorage | undefined;
 
 if (typeof window !== 'undefined') {
   // Only initialize Firebase if properly configured
@@ -61,13 +74,14 @@ if (typeof window !== 'undefined') {
     }
     auth = getAuth(app);
     db = getFirestore(app);
+    storage = getStorage(app);
   } else {
     console.warn('Firebase not configured - running in demo mode. Add .env.local with Firebase credentials for full functionality.');
   }
 }
 
 // Export Firebase services (will be undefined on server)
-export { auth, db };
+export { auth, db, storage };
 
 // Google Auth Provider (only initialized in browser)
 let googleProvider: GoogleAuthProvider | undefined;
@@ -223,6 +237,10 @@ export async function saveUserProfile(userId: string, username: string, displayN
       username: usernameLower,
       displayName,
       email,
+      plan: 'free',
+      role: 'user',
+      createdAt: Timestamp.now(),
+      lastActiveAt: Timestamp.now(),
       updatedAt: Timestamp.now()
     }, { merge: true });
 
@@ -245,9 +263,18 @@ export async function saveUserConfig(username: string, config: any) {
   }
   try {
     const usernameLower = username.toLowerCase();
-    
+
+    // Firestore rejects undefined values; use deleteField() to remove optional fields when null/undefined
+    const configToSave = { ...config };
+    if (configToSave.backgroundImage == null) {
+      configToSave.backgroundImage = deleteField();
+    }
+    // Clear cached wallpaper so next request regenerates with the new config
+    configToSave.cacheHash = deleteField();
+    configToSave.cachePath = deleteField();
+
     await setDoc(doc(db, 'configs', usernameLower), {
-      ...config,
+      ...configToSave,
       updatedAt: Timestamp.now()
     }, { merge: true });
 
@@ -309,5 +336,242 @@ export async function getPlugin(pluginId: string) {
   } catch (error: any) {
     console.error('Error fetching plugin:', error);
     return { data: null, error: error.message };
+  }
+}
+
+/**
+ * Check for a pending Ko-fi grant and apply it to the user.
+ * Called after a user signs up or logs in.
+ */
+export async function applyPendingKofiGrant(userId: string, email: string, username: string): Promise<boolean> {
+  if (!db) return false;
+  try {
+    const grantDoc = await getDoc(doc(db, 'kofi_grants', email.toLowerCase()));
+    if (!grantDoc.exists()) return false;
+    const grant = grantDoc.data();
+    if (grant?.applied) return false;
+
+    // Use expiry stored in the grant doc (set at donation time), or fall back to 30 days from now
+    const expiresAtTs: Timestamp = grant?.planExpiresAt instanceof Timestamp
+      ? grant.planExpiresAt
+      : Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+
+    await updateDoc(doc(db, 'users', userId), {
+      plan: 'pro',
+      planGrantedBy: 'kofi',
+      planGrantedAt: Timestamp.now(),
+      planExpiresAt: expiresAtTs,
+    });
+    if (username) {
+      try {
+        await updateDoc(doc(db, 'configs', username.toLowerCase()), {
+          plan: 'pro',
+          planExpiresAt: expiresAtTs,
+        });
+      } catch { /* config may not exist yet */ }
+    }
+    await updateDoc(doc(db, 'kofi_grants', email.toLowerCase()), { applied: true });
+    return true;
+  } catch (error) {
+    console.error('Error applying Ko-fi grant:', error);
+    return false;
+  }
+}
+
+/**
+ * Subscribe to real-time user profile updates.
+ * Returns an unsubscribe function. Callback receives null when the doc doesn't exist.
+ */
+export function subscribeToUserProfile(userId: string, callback: (data: any | null) => void): () => void {
+  if (!db) return () => {};
+  return onSnapshot(doc(db, 'users', userId), (snap) => {
+    callback(snap.exists() ? snap.data() : null);
+  });
+}
+
+/**
+ * Update user's last active timestamp (silent fail)
+ */
+export async function updateLastActive(userId: string): Promise<void> {
+  if (!db) return;
+  try {
+    await updateDoc(doc(db, 'users', userId), {
+      lastActiveAt: Timestamp.now(),
+    });
+  } catch {
+    // Silently fail — not critical
+  }
+}
+
+/**
+ * Upload a user's custom background image to Firebase Storage
+ */
+export async function uploadUserBackground(
+  userId: string,
+  file: File
+): Promise<{ url: string; storagePath: string; error: string | null }> {
+  if (!storage) return { url: '', storagePath: '', error: 'Storage not initialized' };
+
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    return { url: '', storagePath: '', error: 'Invalid file type. Use JPG, PNG, or WebP.' };
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return { url: '', storagePath: '', error: 'File size must be under 5MB.' };
+  }
+
+  try {
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const path = `backgrounds/users/${userId}/background.${ext}`;
+    const ref = storageRef(storage, path);
+    await uploadBytes(ref, file, { contentType: file.type });
+    const url = await getDownloadURL(ref);
+    return { url, storagePath: path, error: null };
+  } catch (error: any) {
+    return { url: '', storagePath: '', error: error.message };
+  }
+}
+
+/**
+ * Delete a background image from Firebase Storage
+ */
+export async function deleteUserBackground(storagePath: string): Promise<{ error: string | null }> {
+  if (!storage) return { error: 'Storage not initialized' };
+  try {
+    await deleteObject(storageRef(storage, storagePath));
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+}
+
+/**
+ * Get all preset backgrounds from Firestore
+ */
+export async function getPresetBackgrounds(): Promise<{ data: PresetBackground[]; error: string | null }> {
+  if (!db) return { data: [], error: 'Firestore not initialized' };
+  try {
+    const snapshot = await getDocs(collection(db, 'backgrounds'));
+    const backgrounds = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as PresetBackground[];
+    return { data: backgrounds, error: null };
+  } catch (error: any) {
+    return { data: [], error: error.message };
+  }
+}
+
+/**
+ * Admin: Get all users
+ */
+export async function adminGetAllUsers(): Promise<{ data: any[]; error: string | null }> {
+  if (!db) return { data: [], error: 'Firestore not initialized' };
+  try {
+    const snapshot = await getDocs(collection(db, 'users'));
+    const users = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    return { data: users, error: null };
+  } catch (error: any) {
+    return { data: [], error: error.message };
+  }
+}
+
+/**
+ * Admin: Update user plan (grant / revoke Pro).
+ * Also syncs plan and expiry into the configs doc so the wallpaper API can read it without auth.
+ * @param expiresAt - Date when Pro expires. Pass null to never expire, undefined to clear (revoke).
+ */
+export async function adminUpdateUserPlan(
+  userId: string,
+  plan: UserPlan,
+  username?: string,
+  expiresAt?: Date | null
+): Promise<{ error: string | null }> {
+  if (!db) return { error: 'Firestore not initialized' };
+  try {
+    const userUpdate: any = { plan, planUpdatedAt: Timestamp.now() };
+    const configUpdate: any = { plan };
+
+    if (plan === 'pro') {
+      userUpdate.planExpiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+      configUpdate.planExpiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+    } else {
+      // Revoking — clear expiry
+      userUpdate.planExpiresAt = deleteField();
+      configUpdate.planExpiresAt = deleteField();
+    }
+
+    await updateDoc(doc(db, 'users', userId), userUpdate);
+    // Sync into /configs/{username} so the edge wallpaper API can read it
+    if (username) {
+      try {
+        await updateDoc(doc(db, 'configs', username.toLowerCase()), configUpdate);
+      } catch {
+        // Config may not exist yet — ignore
+      }
+    }
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+}
+
+/**
+ * Admin: Remove background image from a user's config (called when revoking Pro)
+ */
+export async function adminClearUserBackground(username: string): Promise<void> {
+  if (!db) return;
+  try {
+    await updateDoc(doc(db, 'configs', username.toLowerCase()), {
+      backgroundImage: deleteField(),
+    });
+  } catch {
+    // Config may not exist yet — that's fine
+  }
+}
+
+/**
+ * Admin: Upload a preset background image
+ */
+export async function adminUploadPresetBackground(
+  file: File,
+  name: string,
+  isFree: boolean,
+  category: string = 'general'
+): Promise<{ error: string | null }> {
+  if (!storage || !db) return { error: 'Storage or Firestore not initialized' };
+  try {
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const backgroundId = `preset_${Date.now()}`;
+    const path = `backgrounds/presets/${backgroundId}.${ext}`;
+    const ref = storageRef(storage, path);
+    await uploadBytes(ref, file, { contentType: file.type });
+    const url = await getDownloadURL(ref);
+    await setDoc(doc(db, 'backgrounds', backgroundId), {
+      name,
+      url,
+      thumbnailUrl: url,
+      isFree,
+      category,
+      storagePath: path,
+      createdAt: Timestamp.now(),
+    });
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+}
+
+/**
+ * Admin: Delete a preset background
+ */
+export async function adminDeletePresetBackground(
+  backgroundId: string,
+  storagePath: string
+): Promise<{ error: string | null }> {
+  if (!storage || !db) return { error: 'Storage or Firestore not initialized' };
+  try {
+    await deleteObject(storageRef(storage, storagePath));
+    await deleteDoc(doc(db, 'backgrounds', backgroundId));
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
   }
 }

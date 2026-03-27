@@ -9,9 +9,10 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function AuthButton() {
-  const { user, userProfile, signIn, signOut, loading } = useAuth();
+  const { user, userProfile, isAdmin, signIn, signOut, loading } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   if (loading) {
@@ -115,6 +116,17 @@ export default function AuthButton() {
                     Choose your username
                   </div>
                 </a>
+              )}
+
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-3 hover:bg-neutral-700 transition-colors border-b border-neutral-700"
+                >
+                  <div className="text-sm font-medium text-[#FF6B35]">Admin Panel</div>
+                  <div className="text-xs text-neutral-400 mt-0.5">Manage users & settings</div>
+                </Link>
               )}
 
               <button

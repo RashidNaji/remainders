@@ -9,12 +9,15 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from 'firebase/auth';
-import { onAuthChange, signInWithGoogle, signOut, getUserProfile } from '@/lib/firebase';
+import { onAuthChange, signInWithGoogle, signOut, subscribeToUserProfile, updateLastActive } from '@/lib/firebase';
+import { isPlanExpired } from '@/lib/plan-utils';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   userProfile: any | null;
+  isAdmin: boolean;
+  isPro: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -24,6 +27,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   userProfile: null,
+  isAdmin: false,
+  isPro: false,
   signIn: async () => {},
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -38,27 +43,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch user profile
-  const fetchUserProfile = async (userId: string) => {
-    const { data, error } = await getUserProfile(userId);
-    if (data) {
-      setUserProfile(data);
-    }
-  };
-
-  // Subscribe to auth state changes
+  // Subscribe to auth state changes + real-time profile listener
   useEffect(() => {
-    const unsubscribe = onAuthChange(async (user) => {
-      setUser(user);
-      if (user) {
-        await fetchUserProfile(user.uid);
+    let profileUnsub: (() => void) | null = null;
+
+    const authUnsub = onAuthChange((firebaseUser) => {
+      setUser(firebaseUser);
+
+      // Clean up previous profile listener
+      if (profileUnsub) {
+        profileUnsub();
+        profileUnsub = null;
+      }
+
+      if (firebaseUser) {
+        // Real-time listener — updates immediately when admin changes plan/role
+        profileUnsub = subscribeToUserProfile(firebaseUser.uid, (data) => {
+          setUserProfile(data);
+          setLoading(false);
+        });
+        updateLastActive(firebaseUser.uid);
       } else {
         setUserProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      authUnsub();
+      if (profileUnsub) profileUnsub();
+    };
   }, []);
 
   const handleSignIn = async () => {
@@ -77,16 +91,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const refreshProfile = async () => {
-    if (user) {
-      await fetchUserProfile(user.uid);
-    }
-  };
+  // No-op — profile updates are handled by the real-time listener above
+  const refreshProfile = async () => {};
+
+  const isAdmin = userProfile?.role === 'admin';
+  const planExpired = isPlanExpired(userProfile?.planExpiresAt);
+  const isPro = (!planExpired && userProfile?.plan === 'pro') || isAdmin;
 
   const value = {
     user,
     loading,
     userProfile,
+    isAdmin,
+    isPro,
     signIn: handleSignIn,
     signOut: handleSignOut,
     refreshProfile,

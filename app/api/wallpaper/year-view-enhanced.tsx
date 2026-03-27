@@ -40,6 +40,7 @@ interface YearViewProps {
   pluginElements?: any[];
   currentDate?: Date;
   timezone?: string;
+  backgroundImage?: { url: string; opacity: number };
 }
 
 export default function YearView({
@@ -70,6 +71,7 @@ export default function YearView({
   pluginElements = [],
   currentDate = new Date(),
   timezone = 'UTC',
+  backgroundImage,
 }: YearViewProps) {
   // Year Logic
   const date = currentDate;
@@ -176,6 +178,23 @@ export default function YearView({
           position: 'relative',
         }}
       >
+        {/* Background image layer */}
+        {backgroundImage?.url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={backgroundImage.url}
+            alt=""
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: backgroundImage.opacity ?? 0.1,
+            }}
+          />
+        )}
         <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
           {allDots}
         </div>
@@ -434,6 +453,23 @@ export default function YearView({
         position: 'relative',
       }}
     >
+      {/* Background image layer */}
+      {backgroundImage?.url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={backgroundImage.url}
+          alt=""
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            opacity: backgroundImage.opacity ?? 0.1,
+          }}
+        />
+      )}
       <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
         {monthCells}
       </div>

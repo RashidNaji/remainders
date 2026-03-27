@@ -11,6 +11,8 @@ import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
 import { getUserConfigByUsername, getPlugin } from '@/lib/firebase-server';
 import { Plugin, UserConfig } from '@/lib/types';
+import { isPlanExpired } from '@/lib/plan-utils';
+import { computeWallpaperHash, loadWallpaperCache, storeWallpaperCache } from '@/lib/wallpaper-cache';
 import LifeView from '../wallpaper/life-view-enhanced';
 import YearView from '../wallpaper/year-view-enhanced';
 
@@ -153,9 +155,26 @@ export async function GET(
     
     config.textElements = config.textElements || [];
     config.plugins = config.plugins || [];
-    
-    console.log('Config after defaults - colors:', config.colors);
-    
+
+    // --- Cache check ---
+    // Include today's date in user's timezone so the cache expires naturally at midnight.
+    const userTimezoneForCache = config.timezone || 'UTC';
+    const todayStr = getDateInTimezone(userTimezoneForCache).toISOString().slice(0, 10);
+    const cacheHash = computeWallpaperHash(username, config as Record<string, any>, todayStr);
+
+    if (config.cacheHash === cacheHash && config.cachePath) {
+      const cached = await loadWallpaperCache(config.cachePath as string);
+      if (cached) {
+        return new Response(new Uint8Array(cached), {
+          headers: {
+            'Content-Type': 'image/png',
+            'Cache-Control': 'public, s-maxage=86400',
+            'X-Cache': 'HIT',
+          },
+        });
+      }
+    }
+
     // Validate required fields
     if (!config.birthDate && config.viewMode === 'life') {
       return new Response('Birthdate is required for Life View. Please configure in dashboard.', { status: 400 });
@@ -178,24 +197,18 @@ export async function GET(
 
     // Execute plugins and collect render elements
     const pluginRenderElements: any[] = [];
-    console.log('Executing plugins, config.plugins count:', config.plugins?.length || 0);
-    
+
     for (const pluginConfig of config.plugins || []) {
-      if (!pluginConfig.enabled) {
-        console.log(`Plugin ${pluginConfig.pluginId}: disabled, skipping`);
-        continue;
-      }
-      
+      if (!pluginConfig.enabled) continue;
+
       // Try to get built-in plugin first
       let plugin = availablePlugins.get(pluginConfig.pluginId);
-      
+
       // If not built-in, try to load from Firestore
       if (!plugin) {
         try {
-          console.log(`Loading user plugin ${pluginConfig.pluginId} from Firestore`);
           const { data: userPlugin, error } = await getPlugin(pluginConfig.pluginId);
           if (userPlugin && userPlugin.code) {
-            // Execute user plugin code to get the plugin object
             const pluginFunction = new Function(
               'return (function() { ' + userPlugin.code + '; return typeof plugin !== "undefined" ? plugin : null; })()'
             );
@@ -207,19 +220,10 @@ export async function GET(
           console.error(`Failed to load user plugin ${pluginConfig.pluginId}:`, error);
         }
       }
-      
-      if (!plugin) {
-        console.log(`Plugin ${pluginConfig.pluginId}: not found`);
-        continue;
-      }
-      
-      if (!plugin.execute) {
-        console.log(`Plugin ${pluginConfig.pluginId}: no execute function`);
-        continue;
-      }
-      
+
+      if (!plugin?.execute) continue;
+
       try {
-        console.log(`Executing plugin ${pluginConfig.pluginId}`);
         const elements = plugin.execute({
           config: pluginConfig.config || {},
           width: config.device.width,
@@ -231,8 +235,6 @@ export async function GET(
           timezone: userTimezone,
           currentDate: currentDate,
         });
-        
-        console.log(`Plugin ${pluginConfig.pluginId} returned ${elements?.length || 0} elements`);
         if (Array.isArray(elements)) {
           pluginRenderElements.push(...elements);
         }
@@ -240,9 +242,20 @@ export async function GET(
         console.error(`Plugin ${pluginConfig.pluginId} execution error:`, error);
       }
     }
-    
-    console.log('Total plugin render elements:', pluginRenderElements.length);
-    console.log('Sample plugin elements:', JSON.stringify(pluginRenderElements.slice(0, 3), null, 2));
+
+    // Enforce plan before rendering background image
+    // Plan is stored in the config doc (public-readable) — no extra auth needed
+    let backgroundImageProp: { url: string; opacity: number } | undefined;
+    if (config.backgroundImage?.url) {
+      const isPro = config.plan === 'pro' && !isPlanExpired(config.planExpiresAt);
+      const isFreePreset = config.backgroundImage.type === 'preset' && config.backgroundImage.isFree === true;
+      if (isPro || isFreePreset) {
+        backgroundImageProp = {
+          url: config.backgroundImage.url,
+          opacity: config.backgroundImage.opacity ?? 0.1,
+        };
+      }
+    }
 
     // Prepare view props
     const viewProps = {
@@ -254,6 +267,7 @@ export async function GET(
       textElements: config.textElements,
       pluginElements: pluginRenderElements,
       currentDate: currentDate,
+      backgroundImage: backgroundImageProp,
     };
 
     let view;
@@ -272,10 +286,17 @@ export async function GET(
       });
     }
 
-    return new ImageResponse(view, {
+    const imageResponse = new ImageResponse(view, {
       width: config.device.width,
       height: config.device.height,
     });
+
+    // Store in cache (fire-and-forget — don't block the response)
+    imageResponse.clone().arrayBuffer().then(buf => {
+      storeWallpaperCache(username, cacheHash, Buffer.from(buf));
+    }).catch(() => { /* non-fatal */ });
+
+    return imageResponse;
 
   } catch (error: any) {
     console.error('Error generating wallpaper:', error);

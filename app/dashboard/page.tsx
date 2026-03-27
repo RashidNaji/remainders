@@ -8,19 +8,27 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { saveUserProfile, saveUserConfig, isUsernameAvailable, getUserConfigByUsername } from '@/lib/firebase';
-import { UserConfig, DeviceModel, ViewMode, Plugin, PluginConfig, TextElement, DaysLayoutMode } from '@/lib/types';
+import { saveUserProfile, saveUserConfig, isUsernameAvailable, getUserConfigByUsername, applyPendingKofiGrant } from '@/lib/firebase';
+import { UserConfig, DeviceModel, ViewMode, Plugin, PluginConfig, TextElement, DaysLayoutMode, BackgroundImage } from '@/lib/types';
 import ViewModeToggle from '@/components/ViewModeToggle';
 import BirthDateInput from '@/components/BirthDateInput';
 import DeviceSelector from '@/components/DeviceSelector';
 import ThemeColorPicker from '@/components/ThemeColorPicker';
 import PluginMarketplace from '@/components/PluginMarketplace';
 import TextElementsEditor from '@/components/TextElementsEditor';
+import BackgroundPicker from '@/components/BackgroundPicker';
 import { PRESET_THEMES, getThemeByName, Theme } from '@/lib/themes';
 import { seedExamplePlugins } from '@/lib/seed-plugins';
 
+/** Returns remaining days until expiry, or null if no expiry. Negative = expired. */
+function getDaysRemaining(planExpiresAt: any): number | null {
+  if (!planExpiresAt) return null;
+  const expiryDate = planExpiresAt.toDate?.() ?? new Date(planExpiresAt);
+  return Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
+
 export default function DashboardPage() {
-  const { user, userProfile, loading, refreshProfile } = useAuth();
+  const { user, userProfile, loading, refreshProfile, isPro } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   
@@ -66,6 +74,14 @@ export default function DashboardPage() {
     dotSpacing: layout.dotSpacing ?? 0.7,
   };
   
+  // Background image state
+  const [backgroundImage, setBackgroundImage] = useState<BackgroundImage | null>(null);
+  const [backgroundExpanded, setBackgroundExpanded] = useState(false);
+
+  // Ko-fi email state
+  const [kofiEmail, setKofiEmail] = useState('');
+  const [kofiStatus, setKofiStatus] = useState<'idle' | 'checking' | 'granted' | 'not_found' | 'already_pro' | 'invalid_email'>('idle');
+
   // Plugin state
   const [plugins, setPlugins] = useState<PluginConfig[]>([]);
   
@@ -129,6 +145,7 @@ export default function DashboardPage() {
       layout: JSON.stringify(layout),
       plugins: JSON.stringify(plugins),
       textElements: JSON.stringify(textElements),
+      backgroundImage: JSON.stringify(backgroundImage),
       viewMode,
       birthDate,
       isMondayFirst,
@@ -137,13 +154,14 @@ export default function DashboardPage() {
       timezone,
       device: JSON.stringify(currentDevice),
     };
-    
+
     const savedState = {
       colors: JSON.stringify(config.colors),
       typography: JSON.stringify(config.typography),
       layout: JSON.stringify(config.layout),
       plugins: JSON.stringify(config.plugins || []),
       textElements: JSON.stringify(config.textElements || []),
+      backgroundImage: JSON.stringify(config.backgroundImage ?? null),
       viewMode: config.viewMode,
       birthDate: config.birthDate,
       isMondayFirst: config.isMondayFirst,
@@ -178,7 +196,7 @@ export default function DashboardPage() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [colors, fontFamily, fontSize, statsVisible, layout, plugins, textElements, viewMode, birthDate, isMondayFirst, yearViewLayout, daysLayoutMode, timezone, selectedDevice, config, isConfigComplete]);
+  }, [colors, fontFamily, fontSize, statsVisible, layout, plugins, textElements, backgroundImage, viewMode, birthDate, isMondayFirst, yearViewLayout, daysLayoutMode, timezone, selectedDevice, config, isConfigComplete]);
 
   const loadUserConfig = async (username: string) => {
     const { data } = await getUserConfigByUsername(username);
@@ -223,9 +241,13 @@ export default function DashboardPage() {
       if (cfg.plugins) {
         setPlugins(cfg.plugins);
       }
-      
+
       if (cfg.textElements) {
         setTextElements(cfg.textElements);
+      }
+
+      if (cfg.backgroundImage) {
+        setBackgroundImage(cfg.backgroundImage);
       }
       
       if (cfg.device && cfg.device.width) {
@@ -349,6 +371,10 @@ export default function DashboardPage() {
     );
     
     if (success) {
+      // Check if this user donated on Ko-fi before signing up
+      if (user.email) {
+        await applyPendingKofiGrant(user.uid, user.email, username);
+      }
       await refreshProfile();
       // Initialize default config
       await saveConfig();
@@ -357,6 +383,16 @@ export default function DashboardPage() {
     }
     
     setSavingUsername(false);
+  };
+
+  const handleKofiEmailCheck = async () => {
+    if (!user || !kofiEmail.trim() || !userProfile?.username) return;
+    if (isPro) { setKofiStatus('already_pro'); return; }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(kofiEmail.trim())) { setKofiStatus('invalid_email'); return; }
+    setKofiStatus('checking');
+    const granted = await applyPendingKofiGrant(user.uid, kofiEmail.trim(), userProfile.username);
+    setKofiStatus(granted ? 'granted' : 'not_found');
   };
 
   const handleThemeChange = (themeName: string) => {
@@ -539,6 +575,8 @@ export default function DashboardPage() {
       layout: layout,
       textElements: textElements,
       plugins: plugins,
+      backgroundImage: backgroundImage ?? undefined,
+      plan: (userProfile?.plan || userProfile?.role === 'admin' ? 'pro' : 'free') as 'free' | 'pro',
       isMondayFirst,
       yearViewLayout,
       daysLayoutMode,
@@ -708,6 +746,104 @@ export default function DashboardPage() {
             </a>
           </div>
         </div>
+
+        {/* Subscription Status */}
+        {(() => {
+          const isAdmin = userProfile?.role === 'admin';
+          const daysLeft = getDaysRemaining(userProfile?.planExpiresAt);
+
+          if (isAdmin) {
+            return (
+              <div className="px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Admin</span>
+                  <span className="text-xs font-mono text-neutral-500">Full access · No expiration</span>
+                </div>
+              </div>
+            );
+          }
+
+          if (isPro && daysLeft !== null) {
+            const urgency = daysLeft <= 3 ? 'text-red-400' : daysLeft <= 7 ? 'text-yellow-400' : 'text-green-400';
+            const barColor = daysLeft <= 3 ? '#ef4444' : daysLeft <= 7 ? '#eab308' : '#22c55e';
+            const barWidth = Math.max(2, Math.min(100, (daysLeft / 30) * 100));
+            return (
+              <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Pro</span>
+                    <span className={`text-xs font-mono ${urgency}`}>
+                      {daysLeft <= 0 ? 'Expired' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono text-neutral-600">
+                    {(() => {
+                      const d = userProfile?.planExpiresAt?.toDate?.() ?? new Date(userProfile?.planExpiresAt);
+                      return d instanceof Date && !isNaN(d.getTime())
+                        ? `Expires ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : '';
+                    })()}
+                  </span>
+                </div>
+                <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
+                  <div style={{ width: `${barWidth}%`, height: '100%', background: barColor, borderRadius: '9999px', transition: 'width 0.3s' }} />
+                </div>
+                {daysLeft <= 7 && (
+                  <div className="text-xs font-mono text-neutral-500">
+                    {daysLeft <= 0
+                      ? 'Your Pro plan has expired. Donate again on Ko-fi to renew.'
+                      : 'Pro expiring soon — '}{daysLeft > 0 && (
+                        <a href="https://ko-fi.com/ti003" target="_blank" rel="noopener noreferrer" className="text-[#FF6B35] hover:underline">
+                          donate on Ko-fi to renew
+                        </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (isPro && daysLeft === null) {
+            return (
+              <div className="px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg flex items-center gap-3">
+                <span className="text-xs font-mono uppercase tracking-widest text-[#FF6B35] font-bold">Pro</span>
+                <span className="text-xs font-mono text-neutral-500">Active · No expiration</span>
+              </div>
+            );
+          }
+
+          // Free user — show how to get Pro
+          return (
+            <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono uppercase tracking-widest text-neutral-500">Free Plan</span>
+                <a
+                  href="https://ko-fi.com/ti003"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-mono text-[#FF6B35] hover:underline uppercase tracking-widest"
+                >
+                  Upgrade to Pro →
+                </a>
+              </div>
+              <div className="text-xs font-mono text-neutral-600 leading-relaxed">
+                Donate on Ko-fi to unlock Pro backgrounds, custom uploads, and support the project.
+              </div>
+              <div className="flex flex-col gap-1.5 text-xs font-mono">
+                {[
+                  ['1', 'Visit ko-fi.com/ti003 and donate any amount'],
+                  ['2', 'Pro activates automatically (email must match your account)'],
+                  ['3', 'Used a different email? Use the "Donated on Ko-fi?" field below'],
+                ].map(([step, text]) => (
+                  <div key={step} className="flex gap-2">
+                    <span className="text-[#FF6B35] font-bold">{step}.</span>
+                    <span className="text-neutral-500">{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Wallpaper Configuration */}
         <div className="p-6 bg-neutral-900 border border-neutral-800 rounded-lg space-y-6">
@@ -1182,6 +1318,50 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Background Image */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setBackgroundExpanded(!backgroundExpanded)}
+            className="w-full p-6 flex items-center justify-between hover:bg-neutral-800 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm uppercase tracking-wider text-neutral-400">Background Image</h2>
+              {!isPro && (
+                <span className="text-xs bg-neutral-700 text-neutral-400 px-2 py-0.5 rounded">
+                  Free presets available
+                </span>
+              )}
+              {isPro && (
+                <span className="text-xs bg-[#FF6B35]/20 text-[#FF6B35] px-2 py-0.5 rounded">
+                  Pro
+                </span>
+              )}
+            </div>
+            <svg
+              className={`w-5 h-5 text-neutral-400 transition-transform ${backgroundExpanded ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {backgroundExpanded && (
+            <div className="p-6 border-t border-neutral-800">
+              <p className="text-xs text-neutral-500 mb-4">
+                Add a background image behind your wallpaper grid.
+                {!isPro && ' Upgrade to Pro to upload custom images.'}
+              </p>
+              {user && (
+                <BackgroundPicker
+                  value={backgroundImage}
+                  onChange={setBackgroundImage}
+                  userId={user.uid}
+                  isPro={isPro}
+                />
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Text Elements Editor */}
         <div className="p-6 bg-neutral-900 border border-neutral-800 rounded-lg space-y-4">
           <h2 className="text-sm uppercase tracking-wider text-neutral-400">Custom Text Elements</h2>
@@ -1225,6 +1405,46 @@ export default function DashboardPage() {
             {plugins.filter(p => p.enabled).length} plugin{plugins.filter(p => p.enabled).length !== 1 ? 's' : ''} enabled
           </div>
           
+          {/* Ko-fi donation unlock */}
+          {!isPro && (
+            <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg space-y-3">
+              <div>
+                <h3 className="text-xs uppercase tracking-wider text-neutral-400">Donated on Ko-fi?</h3>
+                <p className="text-xs text-neutral-600 mt-1">
+                  If you donated with a different email, enter it here to unlock Pro.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={kofiEmail}
+                  onChange={e => { setKofiEmail(e.target.value); setKofiStatus('idle'); }}
+                  placeholder="your@kofi-email.com"
+                  className="flex-1 bg-neutral-800 border border-neutral-700 px-3 py-2 text-xs text-white placeholder:text-neutral-600 rounded focus:outline-none focus:border-neutral-500"
+                />
+                <button
+                  onClick={handleKofiEmailCheck}
+                  disabled={!kofiEmail.trim() || kofiStatus === 'checking'}
+                  className="px-4 py-2 bg-neutral-700 hover:bg-neutral-600 disabled:opacity-40 text-xs text-white rounded transition-colors whitespace-nowrap"
+                >
+                  {kofiStatus === 'checking' ? 'Checking...' : 'Verify'}
+                </button>
+              </div>
+              {kofiStatus === 'granted' && (
+                <p className="text-xs text-green-400">✓ Donation verified — Pro access granted! Refresh to see changes.</p>
+              )}
+              {kofiStatus === 'not_found' && (
+                <p className="text-xs text-red-400">No donation found for that email. Contact the admin if you think this is a mistake.</p>
+              )}
+              {kofiStatus === 'already_pro' && (
+                <p className="text-xs text-neutral-500">You already have Pro access.</p>
+              )}
+              {kofiStatus === 'invalid_email' && (
+                <p className="text-xs text-yellow-500">Please enter a valid email address.</p>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <button
               onClick={handleExportConfig}
