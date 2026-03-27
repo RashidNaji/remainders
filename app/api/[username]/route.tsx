@@ -168,7 +168,7 @@ export async function GET(
         return new Response(new Uint8Array(cached), {
           headers: {
             'Content-Type': 'image/png',
-            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
             'X-Cache': 'HIT',
           },
         });
@@ -301,7 +301,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
         'X-Cache': 'MISS',
       },
     });
