@@ -168,7 +168,7 @@ export async function GET(
         return new Response(new Uint8Array(cached), {
           headers: {
             'Content-Type': 'image/png',
-            'Cache-Control': 'public, s-maxage=86400',
+            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
             'X-Cache': 'HIT',
           },
         });
@@ -296,7 +296,15 @@ export async function GET(
       storeWallpaperCache(username, cacheHash, Buffer.from(buf));
     }).catch(() => { /* non-fatal */ });
 
-    return imageResponse;
+    // Ensure we override ImageResponse's default 1-year immutable cache header
+    return new Response(imageResponse.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        'X-Cache': 'MISS',
+      },
+    });
 
   } catch (error: any) {
     console.error('Error generating wallpaper:', error);
