@@ -68,9 +68,24 @@ export async function POST(request: NextRequest) {
   let payload: KofiPayload | null = null;
 
   try {
-    // Ko-fi sends application/x-www-form-urlencoded with a `data` field
-    const formData = await request.formData();
-    const raw = formData.get('data');
+    // Ko-fi may send form-urlencoded (standard) or occasionally with a missing/wrong
+    // Content-Type header. Parse the raw body manually to handle both cases.
+    const bodyText = await request.text();
+    let raw: string | null = null;
+
+    const contentType = request.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      // Ko-fi sent the payload as raw JSON
+      raw = bodyText;
+    } else {
+      // Treat as URL-encoded: data=<JSON> — works even when Content-Type is wrong/missing
+      const params = new URLSearchParams(bodyText);
+      raw = params.get('data');
+      // Fallback: body might already be raw JSON without a data= wrapper
+      if (!raw && bodyText.trimStart().startsWith('{')) {
+        raw = bodyText;
+      }
+    }
 
     if (!raw || typeof raw !== 'string') {
       return NextResponse.json({ error: 'Missing data field' }, { status: 400 });
